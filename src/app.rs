@@ -414,34 +414,34 @@ impl App {
                             if let Some(battery_percentage) = d.battery_percentage {
                                 match battery_percentage {
                                     n if n >= 90 => {
-                                        format!("{battery_percentage}% 󰥈 ")
+                                        format!("{battery_percentage}%")
                                     }
                                     n if (80..90).contains(&n) => {
-                                        format!("{battery_percentage}% 󰥅 ")
+                                        format!("{battery_percentage}%")
                                     }
                                     n if (70..80).contains(&n) => {
-                                        format!("{battery_percentage}% 󰥄 ")
+                                        format!("{battery_percentage}%")
                                     }
                                     n if (60..70).contains(&n) => {
-                                        format!("{battery_percentage}% 󰥃 ")
+                                        format!("{battery_percentage}%")
                                     }
                                     n if (50..60).contains(&n) => {
-                                        format!("{battery_percentage}% 󰥂 ")
+                                        format!("{battery_percentage}%")
                                     }
                                     n if (40..50).contains(&n) => {
-                                        format!("{battery_percentage}% 󰥁 ")
+                                        format!("{battery_percentage}%")
                                     }
                                     n if (30..40).contains(&n) => {
-                                        format!("{battery_percentage}% 󰥀 ")
+                                        format!("{battery_percentage}%")
                                     }
                                     n if (20..30).contains(&n) => {
-                                        format!("{battery_percentage}% 󰤿 ")
+                                        format!("{battery_percentage}%")
                                     }
                                     n if (10..20).contains(&n) => {
-                                        format!("{battery_percentage}% 󰤾 ")
+                                        format!("{battery_percentage}%")
                                     }
                                     _ => {
-                                        format!("{battery_percentage}% 󰤾 ")
+                                        format!("{battery_percentage}%")
                                     }
                                 }
                             } else {
@@ -691,7 +691,7 @@ impl App {
                             Span::from(self.config.paired_device.unpair.to_string()).bold(),
                             Span::from("  Unpair"),
                             Span::from(" | "),
-                            Span::from("󱁐  or ↵ ").bold(),
+                            Span::from(" ↵ ").bold(),
                             Span::from(" Dis/Connect"),
                             Span::from(" | "),
                             Span::from(self.config.paired_device.toggle_trust.to_string()).bold(),
@@ -706,7 +706,7 @@ impl App {
                     } else {
                         vec![
                             Line::from(vec![
-                                Span::from("󱁐  or ↵ ").bold(),
+                                Span::from(" ↵ ").bold(),
                                 Span::from(" Dis/Connect"),
                                 Span::from(" | "),
                                 Span::from("s").bold(),
@@ -737,23 +737,23 @@ impl App {
                 }
                 FocusedBlock::NewDevices => vec![Line::from(vec![
                     Span::from("k,").bold(),
-                    Span::from("  Up"),
+                    Span::from("Up"),
                     Span::from(" | "),
                     Span::from("j,").bold(),
-                    Span::from("  Down"),
+                    Span::from("Down"),
                     Span::from(" | "),
-                    Span::from("󱁐  or ↵ ").bold(),
+                    Span::from("↵ ").bold(),
                     Span::from(" Pair"),
                     Span::from(" | "),
                     Span::from("s").bold(),
-                    Span::from("  Scan on/off"),
+                    Span::from("Scan on/off"),
                     Span::from(" | "),
                     Span::from("⇄").bold(),
                     Span::from(" Nav"),
                 ])],
                 FocusedBlock::Adapter => vec![Line::from(vec![
                     Span::from("s").bold(),
-                    Span::from("  Scan on/off"),
+                    Span::from(" Scan on/off"),
                     Span::from(" | "),
                     Span::from(self.config.adapter.toggle_pairing.to_string()).bold(),
                     Span::from(" Pairing on/off"),
@@ -769,19 +769,19 @@ impl App {
                 ])],
                 FocusedBlock::SetDeviceAliasBox => {
                     vec![Line::from(vec![
-                        Span::from("󱊷 ").bold(),
+                        Span::from(" ").bold(),
                         Span::from(" Discard"),
                     ])]
                 }
                 FocusedBlock::PassKeyConfirmation => {
                     vec![Line::from(vec![
-                        Span::from("󱊷 ").bold(),
+                        Span::from(" ").bold(),
                         Span::from(" Discard"),
                     ])]
                 }
             };
 
-            let help = Paragraph::new(help).centered().blue();
+            let help = Paragraph::new(help).centered().green();
             frame.render_widget(help, help_block);
 
             // Pairing confirmation

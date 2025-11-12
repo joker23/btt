@@ -46,17 +46,17 @@ impl Device {
     // https://specifications.freedesktop.org/icon-naming-spec/icon-naming-spec-latest.html
     pub fn get_icon(name: &str) -> Option<String> {
         match name {
-            "audio-card" => Some(String::from("󰓃")),
-            "audio-input-microphone" => Some(String::from("")),
-            "audio-headphones" | "audio-headset" => Some(String::from("󰋋")),
-            "battery" => Some(String::from("󰂀")),
-            "camera-photo" => Some(String::from("󰻛")),
-            "computer" => Some(String::from("")),
-            "input-keyboard" => Some(String::from("󰌌")),
-            "input-mouse" => Some(String::from("󰍽")),
-            "input-gaming" => Some(String::from("󰊴")),
-            "phone" => Some(String::from("󰏲")),
-            _ => Some(String::from(" ")),
+            "audio-card" =>                         Some(String::from("[audio card]")),
+            "audio-input-microphone" =>             Some(String::from("[mic       ]")),
+            "audio-headphones" | "audio-headset" => Some(String::from("[headphones]")),
+            "battery" =>                            Some(String::from("[battery   ]")),
+            "camera-photo" =>                       Some(String::from("[camera    ]")),
+            "computer" =>                           Some(String::from("[computer  ]")),
+            "input-keyboard" =>                     Some(String::from("[keyboard  ]")),
+            "input-mouse" =>                        Some(String::from("[mouse     ]")),
+            "input-gaming" =>                       Some(String::from("[gamepad   ]")),
+            "phone" =>                              Some(String::from("[phone     ]")),
+            _ =>                                    Some(String::from("[unknown   ]")),
         }
     }
 }
