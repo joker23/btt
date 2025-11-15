@@ -423,34 +423,34 @@ impl App {
                             if let Some(battery_percentage) = d.battery_percentage {
                                 match battery_percentage {
                                     n if n >= 90 => {
-                                        format!("{battery_percentage}% 󰥈 ")
+                                        format!("{battery_percentage}%")
                                     }
                                     n if (80..90).contains(&n) => {
-                                        format!("{battery_percentage}% 󰥅 ")
+                                        format!("{battery_percentage}%")
                                     }
                                     n if (70..80).contains(&n) => {
-                                        format!("{battery_percentage}% 󰥄 ")
+                                        format!("{battery_percentage}%")
                                     }
                                     n if (60..70).contains(&n) => {
-                                        format!("{battery_percentage}% 󰥃 ")
+                                        format!("{battery_percentage}%")
                                     }
                                     n if (50..60).contains(&n) => {
-                                        format!("{battery_percentage}% 󰥂 ")
+                                        format!("{battery_percentage}%")
                                     }
                                     n if (40..50).contains(&n) => {
-                                        format!("{battery_percentage}% 󰥁 ")
+                                        format!("{battery_percentage}%")
                                     }
                                     n if (30..40).contains(&n) => {
-                                        format!("{battery_percentage}% 󰥀 ")
+                                        format!("{battery_percentage}%")
                                     }
                                     n if (20..30).contains(&n) => {
-                                        format!("{battery_percentage}% 󰤿 ")
+                                        format!("{battery_percentage}%")
                                     }
                                     n if (10..20).contains(&n) => {
-                                        format!("{battery_percentage}% 󰤾 ")
+                                        format!("{battery_percentage}%")
                                     }
                                     _ => {
-                                        format!("{battery_percentage}% 󰤾 ")
+                                        format!("{battery_percentage}%")
                                     }
                                 }
                             } else {
