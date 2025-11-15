@@ -1,3 +1,10 @@
+use crate::{
+    agent::{
+        display_passkey, display_pin_code, request_confirmation, request_passkey, request_pin_code,
+    },
+    event::Event,
+    help::Help,
+};
 use bluer::{
     Session,
     agent::{Agent, AgentHandle},
@@ -15,27 +22,31 @@ use ratatui::{
 };
 use tui_input::Input;
 
+use tokio::sync::mpsc::UnboundedSender;
+
 use crate::{
-    bluetooth::{Controller, request_confirmation},
+    agent::AuthAgent,
+    bluetooth::Controller,
     config::{Config, Width},
-    confirmation::PairingConfirmation,
     notification::Notification,
+    requests::Requests,
     spinner::Spinner,
 };
-use std::{
-    error,
-    sync::{Arc, atomic::Ordering},
-};
+use std::sync::{Arc, atomic::Ordering};
 
-pub type AppResult<T> = std::result::Result<T, Box<dyn error::Error>>;
+pub type AppResult<T> = anyhow::Result<T>;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum FocusedBlock {
     Adapter,
     PairedDevices,
     NewDevices,
-    PassKeyConfirmation,
     SetDeviceAliasBox,
+    RequestConfirmation,
+    EnterPinCode,
+    EnterPasskey,
+    DisplayPinCode,
+    DisplayPasskey,
 }
 
 #[derive(Debug)]
@@ -50,33 +61,39 @@ pub struct App {
     pub paired_devices_state: TableState,
     pub new_devices_state: TableState,
     pub focused_block: FocusedBlock,
-    pub pairing_confirmation: PairingConfirmation,
     pub new_alias: Input,
     pub config: Arc<Config>,
+    pub requests: Requests,
+    pub auth_agent: AuthAgent,
 }
 
 impl App {
-    pub async fn new(config: Arc<Config>) -> AppResult<Self> {
+    pub async fn new(config: Arc<Config>, sender: UnboundedSender<Event>) -> AppResult<Self> {
         let session = Arc::new(bluer::Session::new().await?);
 
-        let pairing_confirmation = PairingConfirmation::new();
-
-        let user_confirmation_receiver = pairing_confirmation.user_confirmation_receiver.clone();
-
-        let confirmation_message_sender = pairing_confirmation.confirmation_message_sender.clone();
-
-        let confirmation_display = pairing_confirmation.display.clone();
+        let auth_agent = AuthAgent::new(sender.clone());
 
         let agent = Agent {
             request_default: false,
-            request_confirmation: Some(Box::new(move |req| {
-                request_confirmation(
-                    req,
-                    confirmation_display.clone(),
-                    user_confirmation_receiver.clone(),
-                    confirmation_message_sender.clone(),
-                )
-                .boxed()
+            request_confirmation: Some(Box::new({
+                let auth_agent = auth_agent.clone();
+                move |request| request_confirmation(request, auth_agent.clone()).boxed()
+            })),
+            request_pin_code: Some(Box::new({
+                let auth_agent = auth_agent.clone();
+                move |request| request_pin_code(request, auth_agent.clone()).boxed()
+            })),
+            request_passkey: Some(Box::new({
+                let auth_agent = auth_agent.clone();
+                move |request| request_passkey(request, auth_agent.clone()).boxed()
+            })),
+            display_pin_code: Some(Box::new({
+                let auth_agent = auth_agent.clone();
+                move |request| display_pin_code(request, auth_agent.clone()).boxed()
+            })),
+            display_passkey: Some(Box::new({
+                let auth_agent = auth_agent.clone();
+                move |request| display_passkey(request, auth_agent.clone()).boxed()
             })),
             ..Default::default()
         };
@@ -102,9 +119,10 @@ impl App {
             paired_devices_state: TableState::default(),
             new_devices_state: TableState::default(),
             focused_block: FocusedBlock::PairedDevices,
-            pairing_confirmation,
             new_alias: Input::default(),
             config,
+            requests: Requests::default(),
+            auth_agent,
         })
     }
 
@@ -143,28 +161,26 @@ impl App {
         }
     }
 
-    pub fn render_set_alias(&mut self, frame: &mut Frame) {
-        let area = Layout::default()
+    pub fn render_set_alias(&mut self, frame: &mut Frame, area: Rect) {
+        let block = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Fill(1),
                 Constraint::Length(6),
                 Constraint::Fill(1),
             ])
-            .split(self.area(frame));
+            .split(area);
 
-        let area = Layout::default()
+        let block = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
                 Constraint::Fill(1),
-                Constraint::Min(80),
+                Constraint::Max(70),
                 Constraint::Fill(1),
             ])
-            .split(area[1]);
+            .split(block[1])[1];
 
-        let area = area[1];
-
-        let (text_area, alias_area) = {
+        let (text_block, alias_block) = {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints(
@@ -176,7 +192,7 @@ impl App {
                     ]
                     .as_ref(),
                 )
-                .split(area);
+                .split(block);
 
             let area1 = Layout::default()
                 .direction(Direction::Horizontal)
@@ -205,14 +221,14 @@ impl App {
             (area1[1], area2[1])
         };
 
-        frame.render_widget(Clear, area);
+        frame.render_widget(Clear, block);
         frame.render_widget(
             Block::new()
                 .borders(Borders::ALL)
                 .border_type(BorderType::Thick)
                 .style(Style::default().green())
                 .border_style(Style::default().fg(Color::Green)),
-            area,
+            block,
         );
 
         if let Some(selected_controller) = self.controller_state.selected() {
@@ -242,8 +258,8 @@ impl App {
                             .padding(Padding::horizontal(2)),
                     );
 
-                frame.render_widget(msg, text_area);
-                frame.render_widget(alias, alias_area);
+                frame.render_widget(msg, text_block);
+                frame.render_widget(alias, alias_block);
             }
         }
     }
@@ -252,8 +268,7 @@ impl App {
         if let Some(selected_controller_index) = self.controller_state.selected() {
             let selected_controller = &self.controllers[selected_controller_index];
             // Layout
-            let render_new_devices = !selected_controller.new_devices.is_empty()
-                | selected_controller.is_scanning.load(Ordering::Relaxed);
+            let render_new_devices = selected_controller.is_scanning.load(Ordering::Relaxed);
 
             if !render_new_devices && self.focused_block == FocusedBlock::NewDevices {
                 self.focused_block = FocusedBlock::PairedDevices;
@@ -401,47 +416,41 @@ impl App {
                 .iter()
                 .map(|d| {
                     Row::new(vec![
-                        {
-                            if let Some(icon) = &d.icon {
-                                format!("{} {}", icon, &d.alias)
-                            } else {
-                                d.alias.to_owned()
-                            }
-                        },
+                        format!("{} {}", &d.icon, &d.alias),
                         d.is_trusted.to_string(),
                         d.is_connected.to_string(),
                         {
                             if let Some(battery_percentage) = d.battery_percentage {
                                 match battery_percentage {
                                     n if n >= 90 => {
-                                        format!("{battery_percentage}%")
+                                        format!("{battery_percentage}% 󰥈 ")
                                     }
                                     n if (80..90).contains(&n) => {
-                                        format!("{battery_percentage}%")
+                                        format!("{battery_percentage}% 󰥅 ")
                                     }
                                     n if (70..80).contains(&n) => {
-                                        format!("{battery_percentage}%")
+                                        format!("{battery_percentage}% 󰥄 ")
                                     }
                                     n if (60..70).contains(&n) => {
-                                        format!("{battery_percentage}%")
+                                        format!("{battery_percentage}% 󰥃 ")
                                     }
                                     n if (50..60).contains(&n) => {
-                                        format!("{battery_percentage}%")
+                                        format!("{battery_percentage}% 󰥂 ")
                                     }
                                     n if (40..50).contains(&n) => {
-                                        format!("{battery_percentage}%")
+                                        format!("{battery_percentage}% 󰥁 ")
                                     }
                                     n if (30..40).contains(&n) => {
-                                        format!("{battery_percentage}%")
+                                        format!("{battery_percentage}% 󰥀 ")
                                     }
                                     n if (20..30).contains(&n) => {
-                                        format!("{battery_percentage}%")
+                                        format!("{battery_percentage}% 󰤿 ")
                                     }
                                     n if (10..20).contains(&n) => {
-                                        format!("{battery_percentage}%")
+                                        format!("{battery_percentage}% 󰤾 ")
                                     }
                                     _ => {
-                                        format!("{battery_percentage}%")
+                                        format!("{battery_percentage}% 󰤾 ")
                                     }
                                 }
                             } else {
@@ -571,43 +580,36 @@ impl App {
 
             //New devices
 
-            let mut max_name_width = 20;
             if render_new_devices {
                 let rows: Vec<Row> = selected_controller
                     .new_devices
                     .iter()
                     .map(|d| {
-                        Row::new(vec![d.addr.to_string(), {
-                            if let Some(icon) = &d.icon {
-                                format!("{} {}", icon, &d.alias)
-                            } else {
-                                if d.alias.len() > max_name_width {
-                                    max_name_width = d.alias.len();
-                                }
-                                d.alias.to_owned()
-                            }
-                        }])
+                        Row::new(vec![
+                            d.addr.to_string(),
+                            format!("{} {}", &d.icon, &d.alias),
+                        ])
                     })
                     .collect();
                 let rows_len = rows.len();
 
-                let widths = [
-                    Constraint::Length(20),
-                    Constraint::Length(max_name_width.try_into().unwrap()),
-                ];
+                let widths = [Constraint::Length(20), Constraint::Length(20)];
 
                 let new_devices_table = Table::new(rows, widths)
                     .header({
                         if self.focused_block == FocusedBlock::NewDevices {
                             Row::new(vec![
-                                Cell::from("Address").style(Style::default().fg(Color::Yellow)),
-                                Cell::from("Name").style(Style::default().fg(Color::Yellow)),
+                                Cell::from(Line::from("Address").fg(Color::Yellow).centered()),
+                                Cell::from(Line::from("Name").fg(Color::Yellow).centered()),
                             ])
                             .style(Style::new().bold())
                             .bottom_margin(1)
                         } else {
-                            Row::new(vec![Cell::from("Address"), Cell::from("Name")])
-                                .bottom_margin(1)
+                            Row::new(vec![
+                                Cell::from(Line::from("Address").centered()),
+                                Cell::from(Line::from("Name").centered()),
+                            ])
+                            .bottom_margin(1)
                         }
                     })
                     .block(
@@ -674,127 +676,49 @@ impl App {
                 }
             }
 
-            // Help
-            let help = match self.focused_block {
-                FocusedBlock::PairedDevices => {
-                    if self.area(frame).width > 103 {
-                        vec![Line::from(vec![
-                            Span::from("k,").bold(),
-                            Span::from("  Up"),
-                            Span::from(" | "),
-                            Span::from("j,").bold(),
-                            Span::from("  Down"),
-                            Span::from(" | "),
-                            Span::from("s").bold(),
-                            Span::from("  Scan on/off"),
-                            Span::from(" | "),
-                            Span::from(self.config.paired_device.unpair.to_string()).bold(),
-                            Span::from("  Unpair"),
-                            Span::from(" | "),
-                            Span::from(" ↵ ").bold(),
-                            Span::from(" Dis/Connect"),
-                            Span::from(" | "),
-                            Span::from(self.config.paired_device.toggle_trust.to_string()).bold(),
-                            Span::from(" Un/Trust"),
-                            Span::from(" | "),
-                            Span::from(self.config.paired_device.rename.to_string()).bold(),
-                            Span::from(" Rename"),
-                            Span::from(" | "),
-                            Span::from("⇄").bold(),
-                            Span::from(" Nav"),
-                        ])]
-                    } else {
-                        vec![
-                            Line::from(vec![
-                                Span::from(" ↵ ").bold(),
-                                Span::from(" Dis/Connect"),
-                                Span::from(" | "),
-                                Span::from("s").bold(),
-                                Span::from("  Scan on/off"),
-                                Span::from(" | "),
-                                Span::from(self.config.paired_device.unpair.to_string()).bold(),
-                                Span::from("  Unpair"),
-                            ]),
-                            Line::from(vec![
-                                Span::from(self.config.paired_device.toggle_trust.to_string())
-                                    .bold(),
-                                Span::from(" Un/Trust"),
-                                Span::from(" | "),
-                                Span::from(self.config.paired_device.rename.to_string()).bold(),
-                                Span::from(" Rename"),
-                                Span::from(" | "),
-                                Span::from("k,").bold(),
-                                Span::from("  Up"),
-                                Span::from(" | "),
-                                Span::from("j,").bold(),
-                                Span::from("  Down"),
-                                Span::from(" | "),
-                                Span::from("⇄").bold(),
-                                Span::from(" Nav"),
-                            ]),
-                        ]
-                    }
-                }
-                FocusedBlock::NewDevices => vec![Line::from(vec![
-                    Span::from("k,").bold(),
-                    Span::from("Up"),
-                    Span::from(" | "),
-                    Span::from("j,").bold(),
-                    Span::from("Down"),
-                    Span::from(" | "),
-                    Span::from("↵ ").bold(),
-                    Span::from(" Pair"),
-                    Span::from(" | "),
-                    Span::from("s").bold(),
-                    Span::from("Scan on/off"),
-                    Span::from(" | "),
-                    Span::from("⇄").bold(),
-                    Span::from(" Nav"),
-                ])],
-                FocusedBlock::Adapter => vec![Line::from(vec![
-                    Span::from("s").bold(),
-                    Span::from(" Scan on/off"),
-                    Span::from(" | "),
-                    Span::from(self.config.adapter.toggle_pairing.to_string()).bold(),
-                    Span::from(" Pairing on/off"),
-                    Span::from(" | "),
-                    Span::from(self.config.adapter.toggle_power.to_string()).bold(),
-                    Span::from(" Power on/off"),
-                    Span::from(" | "),
-                    Span::from(self.config.adapter.toggle_discovery.to_string()).bold(),
-                    Span::from(" Discovery on/off"),
-                    Span::from(" | "),
-                    Span::from("⇄").bold(),
-                    Span::from(" Nav"),
-                ])],
-                FocusedBlock::SetDeviceAliasBox => {
-                    vec![Line::from(vec![
-                        Span::from(" ").bold(),
-                        Span::from(" Discard"),
-                    ])]
-                }
-                FocusedBlock::PassKeyConfirmation => {
-                    vec![Line::from(vec![
-                        Span::from(" ").bold(),
-                        Span::from(" Discard"),
-                    ])]
-                }
-            };
+            //
+            let area = self.area(frame);
 
-            let help = Paragraph::new(help).centered().green();
-            frame.render_widget(help, help_block);
+            // Help
+            Help::render(
+                frame,
+                area,
+                self.focused_block,
+                help_block,
+                self.config.clone(),
+            );
 
             // Pairing confirmation
 
-            if self.pairing_confirmation.display.load(Ordering::Relaxed) {
-                self.focused_block = FocusedBlock::PassKeyConfirmation;
-                self.pairing_confirmation.render(frame, self.area(frame));
-                return;
-            }
-
             // Set alias popup
             if self.focused_block == FocusedBlock::SetDeviceAliasBox {
-                self.render_set_alias(frame)
+                self.render_set_alias(frame, area);
+            }
+
+            // Request Confirmation
+            if let Some(req) = &self.requests.confirmation {
+                req.render(frame, area);
+            }
+
+            // Request to enter pin code
+
+            if let Some(req) = &self.requests.enter_pin_code {
+                req.render(frame, area);
+            }
+
+            // Request passkey
+            if let Some(req) = &self.requests.enter_passkey {
+                req.render(frame, area);
+            }
+
+            // Display Pin Code
+            if let Some(req) = &self.requests.display_pin_code {
+                req.render(frame, area);
+            }
+
+            // Display Passkey
+            if let Some(req) = &self.requests.display_passkey {
+                req.render(frame, area);
             }
         }
     }
@@ -811,12 +735,6 @@ impl App {
     }
 
     pub async fn refresh(&mut self) -> AppResult<()> {
-        if !self.pairing_confirmation.display.load(Ordering::Relaxed)
-            & self.pairing_confirmation.message.is_some()
-        {
-            self.pairing_confirmation.message = None;
-        }
-
         let refreshed_controllers = Controller::get_all(self.session.clone()).await?;
 
         let names = {
