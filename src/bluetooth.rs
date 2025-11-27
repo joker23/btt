@@ -23,7 +23,7 @@ pub struct Controller {
 pub struct Device {
     device: BTDevice,
     pub addr: Address,
-    pub icon: String,
+    pub icon: &'static str,
     pub alias: String,
     pub is_paired: bool,
     pub is_trusted: bool,
@@ -38,7 +38,7 @@ impl Device {
     }
 
     // https://specifications.freedesktop.org/icon-naming/latest/
-    pub fn get_icon(name: &str) -> String {
+    pub fn get_icon(name: &str) -> &'static str {
         match name {
             "audio-card" =>                         String::from("[audio card]"),
             "audio-input-microphone" =>             String::from("[mic       ]"),

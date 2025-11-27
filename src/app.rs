@@ -737,30 +737,27 @@ impl App {
     pub async fn refresh(&mut self) -> AppResult<()> {
         let refreshed_controllers = Controller::get_all(self.session.clone()).await?;
 
-        let names = {
-            let mut names: Vec<String> = Vec::new();
+        // Remove unplugged adapters in a single pass
+        let mut adapter_removed = false;
+        self.controllers.retain(|controller| {
+            let should_retain = refreshed_controllers
+                .iter()
+                .any(|c| c.name == controller.name);
 
-            for controller in self.controllers.iter() {
-                if !refreshed_controllers
-                    .iter()
-                    .any(|c| c.name == controller.name)
-                {
-                    names.push(controller.name.clone());
-                }
+            if !should_retain {
+                adapter_removed = true;
             }
 
-            names
-        };
+            should_retain
+        });
 
-        // Remove unplugged adapters
-        for name in names {
-            self.controllers.retain(|c| c.name != name);
-
+        // Update selection after removal
+        if adapter_removed {
             if !self.controllers.is_empty() {
                 let i = match self.controller_state.selected() {
                     Some(i) => {
                         if i > 0 {
-                            i - 1
+                            (i - 1).min(self.controllers.len() - 1)
                         } else {
                             0
                         }
@@ -779,6 +776,10 @@ impl App {
                 .iter_mut()
                 .find(|c| c.name == refreshed_controller.name)
             {
+                // Prepare to check if the paired devices list is shrinking
+                let old_paired_count = controller.paired_devices.len();
+                let new_paired_count = refreshed_controller.paired_devices.len();
+
                 // Update existing adapters
                 controller.alias = refreshed_controller.alias;
                 controller.is_powered = refreshed_controller.is_powered;
@@ -786,6 +787,19 @@ impl App {
                 controller.is_discoverable = refreshed_controller.is_discoverable;
                 controller.paired_devices = refreshed_controller.paired_devices;
                 controller.new_devices = refreshed_controller.new_devices;
+
+                // Update selection if paired devices list shrank
+                if new_paired_count < old_paired_count
+                    && let Some(selected_index) = self.paired_devices_state.selected()
+                {
+                    // Check if selected index is now out of bounds and update the index if required
+                    if new_paired_count == 0 {
+                        self.paired_devices_state.select(None);
+                    } else if selected_index >= new_paired_count && new_paired_count > 0 {
+                        self.paired_devices_state
+                            .select(Some(new_paired_count.saturating_sub(1)));
+                    }
+                }
             } else {
                 // Add new detected adapters
                 self.controllers.push(refreshed_controller);
