@@ -137,7 +137,7 @@ impl Help {
             }
             FocusedBlock::SetDeviceAliasBox => {
                 vec![Line::from(vec![
-                    Span::from("󱊷 ").bold(),
+                    Span::from("ESC").bold(),
                     Span::from(" Discard"),
                     Span::from(" | "),
                     Span::from("↵ ").bold(),
@@ -149,7 +149,7 @@ impl Help {
                     Span::from("↵ ").bold(),
                     Span::from(" Ok"),
                     Span::from(" | "),
-                    Span::from("󱊷 ").bold(),
+                    Span::from("ESC").bold(),
                     Span::from(" Discard"),
                     Span::from(" | "),
                     Span::from("⇄").bold(),
@@ -176,12 +176,12 @@ impl Help {
             }
             FocusedBlock::DisplayPasskey => {
                 vec![Line::from(vec![
-                    Span::from(" ").bold(),
+                    Span::from("ESC").bold(),
                     Span::from(" Discard"),
                 ])]
             }
         };
-        let help = Paragraph::new(help).centered().blue();
+        let help = Paragraph::new(help).centered().white();
         frame.render_widget(help, rendering_block);
     }
 }
